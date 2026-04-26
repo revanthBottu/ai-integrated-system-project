@@ -10,6 +10,7 @@ constrains it to our exact label schema and teaches it our dataset's quirks
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -112,14 +113,21 @@ class GeminiMoodAnalyzer:
     def _classify_with_finetuned(self, text: str) -> Optional[str]:
         if not self._tuned_name:
             return None
+        logger.info("Fine-tuned model classifying: %r...", text[:40])
         try:
+            t0 = time.time()
             response = self._client.models.generate_content(
                 model=self._tuned_name,
                 contents=text,
                 config=types.GenerateContentConfig(temperature=0),
             )
             label = response.text.strip().lower().strip(".,!? ")
-            return label if label in VALID_LABELS else None
+            elapsed = (time.time() - t0) * 1000
+            if label in VALID_LABELS:
+                logger.info("Fine-tuned → %s  (%.0fms)", label.upper(), elapsed)
+                return label
+            logger.warning("Fine-tuned returned unexpected label %r — ignoring", label)
+            return None
         except Exception as e:
             logger.error("Fine-tuned model error: %s", e)
             return None
@@ -127,6 +135,8 @@ class GeminiMoodAnalyzer:
     def _analyze_with_base(self, text: str) -> GeminiAnalysis:
         prompt = _CLASSIFY_PROMPT.format(text=text.replace('"', "'"))
         raw = ""
+        logger.info("Calling %s for: %r...", BASE_MODEL, text[:50])
+        t0 = time.time()
         try:
             response = self._client.models.generate_content(
                 model=BASE_MODEL,
@@ -137,6 +147,7 @@ class GeminiMoodAnalyzer:
                     response_mime_type="application/json",
                 ),
             )
+            elapsed = (time.time() - t0) * 1000
             raw = response.text.strip()
             if raw.startswith("```"):
                 raw = raw.split("```")[1].lstrip("json").strip()
@@ -147,11 +158,17 @@ class GeminiMoodAnalyzer:
                 label = "neutral"
             confidence = max(0.0, min(1.0, float(data.get("confidence", 0.5))))
             features = data.get("features", {})
+            reasoning = str(data.get("reasoning", "No reasoning provided."))
+
+            logger.info(
+                "Base model → %s (%.0f%%) in %.0fms  |  \"%s\"",
+                label.upper(), confidence * 100, elapsed, reasoning[:80],
+            )
 
             return GeminiAnalysis(
                 label=label,
                 confidence=confidence,
-                reasoning=str(data.get("reasoning", "No reasoning provided.")),
+                reasoning=reasoning,
                 sarcasm_detected=bool(features.get("sarcasm", False)),
                 negation_detected=bool(features.get("negation", False)),
                 slang_detected=bool(features.get("slang", False)),
@@ -160,7 +177,8 @@ class GeminiMoodAnalyzer:
                 raw_response=raw,
             )
         except json.JSONDecodeError as e:
-            logger.error("JSON parse failed: %s | raw=%s", e, raw[:200])
+            elapsed = (time.time() - t0) * 1000
+            logger.error("JSON parse failed after %.0fms: %s | raw=%s", elapsed, e, raw[:200])
             return GeminiAnalysis(
                 label="neutral",
                 confidence=0.0,

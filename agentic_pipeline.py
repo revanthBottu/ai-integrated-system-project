@@ -26,10 +26,6 @@ from gemini_analyzer import GeminiAnalysis, GeminiMoodAnalyzer
 from ml_experiments import predict_single_text, train_ml_model
 from mood_analyzer import MoodAnalyzer
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 _MAX_LEN = 500
@@ -79,13 +75,14 @@ class AgenticMoodPipeline:
     """
 
     def __init__(self) -> None:
-        logger.info("Initializing AgenticMoodPipeline...")
+        logger.info("=== AgenticMoodPipeline init ===")
+        logger.info("Loading rule-based classifier...")
         self._rule = MoodAnalyzer()
+        logger.info("Training ML model (logistic regression)...")
         self._vectorizer, self._ml = train_ml_model(SAMPLE_POSTS, TRUE_LABELS)
+        logger.info("Connecting to Gemini API...")
         self._gemini = GeminiMoodAnalyzer()
-        logger.info(
-            "Pipeline ready — Gemini model: %s", self._gemini.model_description
-        )
+        logger.info("Pipeline ready — Gemini: %s", self._gemini.model_description)
 
     # ──────────────────────────────────────────────────────────────────
 
@@ -107,13 +104,14 @@ class AgenticMoodPipeline:
         """
         t0 = time.time()
         steps: List[str] = []
+        logger.info("─── Pipeline start: %r (%d chars) ───", text[:60], len(text))
 
         # ── Step 1: Guardrail ──────────────────────────────────────────
         steps.append("Step 1: Input guardrail")
         err = self._validate(text)
         if err:
             steps.append(f"  → BLOCKED: {err}")
-            logger.warning("Guardrail blocked: %s", err)
+            logger.warning("Step 1 | BLOCKED — %s", err)
             return PipelineResult(
                 text=text, final_label="neutral", final_confidence=0.0,
                 rule_based_label="neutral", ml_label="neutral",
@@ -124,13 +122,14 @@ class AgenticMoodPipeline:
                 used_finetuned=False, steps_log=steps,
             )
         steps.append(f"  → Valid ({len(text)} chars)")
+        logger.info("Step 1 | Guardrail passed (%d chars)", len(text))
 
         # ── Step 2: Rule-based ─────────────────────────────────────────
         steps.append("Step 2: Rule-based analysis")
         rule_label = self._rule.predict_label(text)
         rule_explain = self._rule.explain(text)
         steps.append(f"  → {rule_label}  |  {rule_explain}")
-        logger.info("[rule] '%s...' → %s", text[:50], rule_label)
+        logger.info("Step 2 | Rule-based → %s  (%s)", rule_label.upper(), rule_explain[:60])
 
         # ── Step 3: Gemini ─────────────────────────────────────────────
         steps.append("Step 3: Gemini analysis (fine-tuned / specialized)")
@@ -138,24 +137,24 @@ class AgenticMoodPipeline:
             gem: GeminiAnalysis = self._gemini.analyze(text)
         except Exception as exc:
             steps.append(f"  → Gemini unavailable ({exc}); using rule-based fallback")
-            logger.error("Gemini error: %s", exc)
+            logger.error("Step 3 | Gemini error: %s", exc)
             gem = _empty_analysis(rule_label, f"Gemini unavailable: {exc}")
 
         gemini_label = gem.label
         model_tag = "fine-tuned" if gem.used_finetuned else "specialized"
         steps.append(f"  → {gemini_label}  |  confidence {gem.confidence:.0%}  [{model_tag}]")
         steps.append(f"  → Reasoning: {gem.reasoning}")
-        for flag, name in [
-            (gem.sarcasm_detected, "sarcasm"),
-            (gem.negation_detected, "negation"),
-            (gem.slang_detected, "slang"),
-        ]:
-            if flag:
-                steps.append(f"  → {name} flag raised")
+        flags = [n for f, n in [(gem.sarcasm_detected, "sarcasm"),
+                                 (gem.negation_detected, "negation"),
+                                 (gem.slang_detected, "slang")] if f]
+        for flag_name in flags:
+            steps.append(f"  → {flag_name} flag raised")
         logger.info(
-            "[gemini/%s] '%s...' → %s (%.0f%%)",
-            model_tag, text[:50], gemini_label, gem.confidence * 100,
+            "Step 3 | Gemini [%s] → %s (%.0f%%)  \"%s\"",
+            model_tag, gemini_label.upper(), gem.confidence * 100, gem.reasoning[:70],
         )
+        if flags:
+            logger.info("Step 3 | Flags detected: %s", ", ".join(flags))
 
         # ── Step 4: Cross-validation ───────────────────────────────────
         steps.append("Step 4: Cross-validation")
@@ -168,41 +167,54 @@ class AgenticMoodPipeline:
             final_confidence = gem.confidence
             models_agreed = False
             steps.append(f"  → High-confidence 'mixed' from Gemini accepted (rule={rule_label})")
+            logger.info("Step 4 | High-confidence MIXED accepted (rule=%s)", rule_label)
 
         elif rule_label == gemini_label:
             final_label = gemini_label
             final_confidence = min(1.0, gem.confidence + 0.10)
             models_agreed = True
             steps.append(f"  → AGREE on '{final_label}' — confidence boosted to {final_confidence:.0%}")
+            logger.info("Step 4 | AGREE: rule + Gemini → %s (confidence boosted to %.0f%%)",
+                        final_label.upper(), final_confidence * 100)
 
         else:
             steps.append(f"  → DISAGREE: rule='{rule_label}' gemini='{gemini_label}'")
+            logger.info("Step 4 | DISAGREE: rule=%s  gemini=%s — calling ML tiebreaker",
+                        rule_label.upper(), gemini_label.upper())
             ml_label = predict_single_text(text, self._vectorizer, self._ml)
             tiebreaker_used = True
             models_agreed = False
             steps.append(f"  → ML tiebreaker: {ml_label}")
-            logger.info("[ml] '%s...' → %s", text[:50], ml_label)
+            logger.info("Step 4 | ML tiebreaker → %s", ml_label.upper())
 
             if ml_label == gemini_label:
                 final_label = gemini_label
                 final_confidence = gem.confidence
                 steps.append(f"  → ML confirms Gemini → '{final_label}'")
+                logger.info("Step 4 | ML confirms Gemini → %s", final_label.upper())
             elif ml_label == rule_label:
                 final_label = rule_label
                 final_confidence = 0.60
                 steps.append(f"  → ML confirms rule-based → '{final_label}'")
+                logger.info("Step 4 | ML confirms rule-based → %s", final_label.upper())
             else:
                 # All three differ — defer to Gemini (most expressive model)
                 final_label = gemini_label
                 final_confidence = max(0.40, gem.confidence - 0.10)
                 steps.append(f"  → All three disagree; defer to Gemini → '{final_label}'")
+                logger.info("Step 4 | All three disagree — deferring to Gemini → %s", final_label.upper())
 
         # ── Step 5: Synthesis ──────────────────────────────────────────
         steps.append("Step 5: Synthesis")
         steps.append(f"  → Final: {final_label}  |  confidence: {final_confidence:.0%}")
 
         elapsed = (time.time() - t0) * 1000
-        logger.info("Done: '%s...' → %s  (%.0f ms)", text[:50], final_label, elapsed)
+        logger.info(
+            "Step 5 | Final: %s (%.0f%%) in %.0fms  |  rule=%s  gemini=%s%s",
+            final_label.upper(), final_confidence * 100, elapsed,
+            rule_label, gemini_label,
+            f"  ml={ml_label}" if tiebreaker_used else "",
+        )
 
         return PipelineResult(
             text=text,

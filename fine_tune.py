@@ -42,7 +42,7 @@ def _api_key() -> str:
     return key
 
 
-def run_fine_tuning() -> str:
+def run_fine_tuning(progress_callback=None) -> str:
     """Submit a fine-tuning job and wait for it to complete. Returns model name."""
     key = _api_key()
     client = genai.Client(api_key=key)
@@ -88,12 +88,18 @@ def run_fine_tuning() -> str:
     except Exception as e:
         sys.exit(f"ERROR: Could not submit fine-tuning job: {e}")
 
+    logger.info("Fine-tuning job submitted: %s", tuning_job.name)
+    logger.info("Training on %d examples — polling every 30s...", len(FINETUNE_EXAMPLES))
     print("Job submitted. Polling for completion...")
     start = time.time()
 
     while not tuning_job.has_ended:
         elapsed = int(time.time() - start)
-        print(f"\r  Elapsed: {elapsed}s  |  State: {tuning_job.state}", end="", flush=True)
+        msg = f"Elapsed: {elapsed}s  |  State: {tuning_job.state}"
+        logger.info(msg)
+        if progress_callback:
+            progress_callback(msg)
+        print(f"\r  {msg}", end="", flush=True)
         time.sleep(30)
         tuning_job = client.tunings.get(name=tuning_job.name)
 
