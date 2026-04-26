@@ -4,7 +4,7 @@ A multi-model mood classifier that combines a fine-tuned Gemini classifier,
 specialized Gemini 2.5 Flash, a rule-based analyzer, and a logistic regression
 model in a transparent agentic pipeline with built-in reliability testing.
 
-> **Loom walkthrough:** _[Add your Loom link here after recording]_
+> **Loom walkthrough:** [_\[Add your Loom link here after recording\]_](https://www.loom.com/share/7c3a595aba2040a9ba214291241aaa1f)
 
 ---
 
