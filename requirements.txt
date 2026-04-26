@@ -3,3 +3,4 @@ matplotlib
 ipykernel
 google-generativeai
 python-dotenv
+flask

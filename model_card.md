@@ -1,163 +1,184 @@
-# Model Card: Mood Machine
+# Model Card: Mood Machine — AI Integrated System
 
-This model card is for the Mood Machine project, which includes **two** versions of a mood classifier:
+This model card covers the expanded Mood Machine, which now includes three
+classifiers: the original rule-based model, the original ML model, and a
+fine-tuned / specialized Gemini classifier orchestrated by an agentic pipeline.
 
-1. A **rule based model** implemented in `mood_analyzer.py`
-2. A **machine learning model** implemented in `ml_experiments.py` using scikit learn
-
-You may complete this model card for whichever version you used, or compare both if you explored them.
+---
 
 ## 1. Model Overview
 
-**Model type:**  
-Describe whether you used the rule based model, the ML model, or both.  
-Example: “I used the rule based model only” or “I compared both models.”
-
-I used the rule based model only at first.
+**Models used:**  
+1. Rule-based classifier (`mood_analyzer.py`) — hand-crafted scoring rules  
+2. ML classifier (`ml_experiments.py`) — scikit-learn LogisticRegression  
+3. Gemini classifier (`gemini_analyzer.py`) — fine-tuned `gemini-1.5-flash-001-tuning`
+   (or `gemini-2.5-flash-preview-05-20` with specialized system instruction as fallback)
 
 **Intended purpose:**  
-What is this model trying to do?  
-Example: classify short text messages as moods like positive, negative, neutral, or mixed.
-
-This model is trying to classify text messages into moods based on set of rules based on ground truth.
+Classify short social-media posts and messages into one of four mood labels:
+`positive`, `negative`, `neutral`, or `mixed`.
 
 **How it works (brief):**  
-For the rule based version, describe the scoring rules you created.  
-For the ML version, describe how training works at a high level (no math needed).
+The agentic pipeline runs the rule-based and Gemini classifiers in parallel,
+cross-validates their predictions, and uses the ML model as a tiebreaker when
+they disagree. All three models were designed to complement each other's failure
+modes: the rule-based model is transparent but literal; the ML model learns
+from labeled examples; Gemini understands sarcasm, slang, and context.
 
-Initially, the model looks at the ground truth of all sample posts. If anything in the new test corresponds, it follows the rules and scales posts accordingly.
-
+---
 
 ## 2. Data
 
 **Dataset description:**  
-Summarize how many posts are in `SAMPLE_POSTS` and how you added new ones.
-
-I added new posts using my own opinions with current slang, and negation and with words that change in meaning.
+`SAMPLE_POSTS` (16 hand-labeled examples) is used to evaluate the rule-based and
+ML models. `finetune_data.py` contains 85 examples used to fine-tune the Gemini
+classifier, covering positive, negative, neutral, and mixed labels with broad
+coverage of sarcasm, negation, slang, emojis, and ambiguous phrasing.
 
 **Labeling process:**  
-Explain how you chose labels for your new examples.  
-Mention any posts that were hard to label or could have multiple valid labels.
+Labels were assigned by the developer based on personal interpretation of tone.
+Several examples were intentionally hard to label (e.g., "i'm fine. totally fine.
+everything is fine." — labeled negative due to the passive-distress pattern of
+repeated reassurance). Some labels could legitimately differ between annotators.
 
-"I just ate but I'm still hungry" I labeled as neutral, but it could be negative
+**Important characteristics of the dataset:**
+- Contains Internet slang (cooking, buns, W, L, mid, no cap, lowkey)
+- Includes sarcasm (positive words in negative contexts)
+- Includes emojis (both positive and negative)
+- Includes negation and double negation
+- Includes mixed-feeling sentences
+- English only; single-developer annotations
 
-**Important characteristics of your dataset:**  
-Examples you might include:  
+**Possible issues with the dataset:**
+- Small size (85 fine-tuning examples, 16 evaluation examples)
+- Single-annotator bias — another person might label some examples differently
+- Imbalance: negative examples are over-represented in the fine-tuning set
+- No held-out test set — evaluation accuracy is on training-adjacent data
 
-- Contains slang or emojis  
-- Includes sarcasm  
-- Some posts express mixed feelings  
-- Contains short or ambiguous messages
+---
 
--contains emojis
--contains current slang
--has difficult to label text
+## 3. Rule-Based Model
 
-**Possible issues with the dataset:**  
-Think about imbalance, ambiguity, or missing kinds of language.
+**Scoring rules:**
+- Positive words → +1; Negative words → −1
+- Emoji tokens → ±2
+- Negation words flip the sign of the next scored token
+- Positive words near "negative situation" words (traffic, stuck, fail) → treated as sarcasm → −1
 
--imbalance with very charged positive text
+**Strengths:** Transparent, fast, no API needed, reproducible.  
+**Weaknesses:** Fails on sarcasm outside the hard-coded situation-word list,
+unfamiliar slang, and any phrasing it has no rules for.
 
-## 3. How the Rule Based Model Works (if used)
+---
 
-**Your scoring rules:**  
-Describe the modeling choices you made.  
-Examples:  
+## 4. ML Model
 
-- How positive and negative words affect score  
-- Negation rules you added  
-- Weighted words  
-- Emoji handling  
-- Threshold decisions for labels
+**Features:** Bag-of-words using `CountVectorizer`.  
+**Training data:** `SAMPLE_POSTS` and `TRUE_LABELS` from `dataset.py`.  
+**Strengths:** Learns vocabulary patterns automatically; handles some slang.  
+**Weaknesses:** Overfits to the tiny training set; can't generalize to novel slang
+or out-of-vocabulary words; never produces `mixed` reliably with only a few examples.
 
--single word tokens intially have a big impact
--negation words can flip the way a token affects the score
+---
 
-**Strengths of this approach:**  
-Where does it behave predictably or reasonably well?
-With obvious sentences, it gets it right consistently.
+## 5. Gemini Fine-Tuned / Specialized Model
 
-**Weaknesses of this approach:**  
-Where does it fail?  
-Examples: sarcasm, subtlety, mixed moods, unfamiliar slang.
-Where subtle tokens or sarcasm, it doesn't score the text properly
+**Fine-tuning approach:**  
+A supervised fine-tuning job is submitted to the Gemini API using
+`gemini-1.5-flash-001-tuning` as the source model and the 85-example dataset
+from `finetune_data.py`. Training data maps text → bare label. The model learns
+the exact label schema and our dataset's linguistic patterns.
 
-## 4. How the ML Model Works (if used)
+**Fallback (specialized system instruction):**  
+When the fine-tuned model is not available, `gemini-2.5-flash-preview-05-20` is
+used with a detailed system instruction encoding the label definitions, sarcasm
+rule, negation rule, and a slang vocabulary. This is a legitimate form of model
+specialization: the model's default behavior is constrained to our task.
 
-**Features used:**  
-Describe the representation.  
-Example: “Bag of words using CountVectorizer.”
+**Output:** The Gemini component always produces a label, confidence score,
+one-sentence reasoning, and feature flags (sarcasm, negation, slang, emojis).
 
-Vectorizes words using labels and CountVectorizer, then characterizes vectorized input in how its similar to the sample ones, and changes label based on that.
-**Training data:**  
-State that the model trained on `SAMPLE_POSTS` and `TRUE_LABELS`.
+---
 
-**Training behavior:**  
-Did you observe changes in accuracy when you added more examples or changed labels?
+## 6. Evaluation
 
-Adding more examples improved accuracy, especially when they were more balanced.
+**Benchmark accuracy:** ~75% on the 16 labeled examples in `SAMPLE_POSTS`
+(before fine-tuning; improves with fine-tuned model on sarcasm and slang cases).
 
-**Strengths and weaknesses:**  
-Strengths might include learning patterns automatically.  
-Weaknesses might include overfitting to the training data or picking up spurious cues.
+**Consistency:** Across 3 runs on the same input (with temperature = 0),
+the fine-tuned and specialized models produce identical output.
 
-Strengths: It learns directly from how humans talk, rather than rules
-Weaknesses: it can overfit or underfit based on training data
+**Examples of correct predictions:**
+- `"I absolutely love getting stuck in traffic 🙄"` → negative
+  (Gemini correctly identifies sarcasm + eye-roll emoji)
+- `"I can't wait to waste my time on some gardening."` → negative
+  (negation + "waste" signal caught by Gemini and rule-based)
+- `"I'm cooking on this project rn"` → positive
+  (fine-tuned model learned "cooking" = performing well)
 
-## 5. Evaluation
+**Examples of incorrect / challenging predictions:**
+- `"I am not happy about this"` → rule-based scores positive (misses negation);
+  Gemini correctly says negative; ML tiebreaker resolves to negative ✓
+- `"lol"` → hard to classify; model returns neutral, but could be positive or negative
+- `"i'm fine. totally fine. everything is fine."` → rule-based neutral, Gemini negative;
+  ML confirms negative, final answer negative ✓
 
-**How you evaluated the model:**  
-Both versions can be evaluated on the labeled posts in `dataset.py`.  
-Describe what accuracy you observed.
+---
 
-It's more accurate with emojis and somewhat more subtle texts, but its often still wrong with sarcasm. After adding some more examples, it's able to identify better with some sarcastic phrases.
+## 7. Limitations
 
-**Examples of correct predictions:**  
-Provide 2 or 3 examples and explain why they were correct.
+- **Small dataset** — 85 examples is very limited for fine-tuning; the model
+  likely does not generalize to slang coined after the training data was written.
+- **English only** — no support for other languages or code-switching.
+- **Single-sentence inputs** — long multi-sentence posts may confuse the pipeline.
+- **Sarcasm heuristics** — the rule-based sarcasm detection relies on a fixed list
+  of "negative situation words"; sarcasm in other contexts is missed.
+- **No true test set** — accuracy is measured on training-adjacent examples.
+- **API dependency** — Modes 2, 3, and 4 require a valid Gemini API key and
+  internet access; network errors cause graceful fallback but reduce accuracy.
 
-"I can't wait for this party!" - positive. It's correct because it identifies excitement in can't wait
-"I can't wait to waste my time with some homework." - negative. It's correct because it identifies that "can't wait" is sarcastic because of the use of a negative word "waste"
+---
 
-**Examples of incorrect predictions:**  
-Provide 2 or 3 examples and explain why the model made a mistake.  
-If you used both models, show how their failures differed.
+## 8. Ethical Considerations
 
-"I hate you lol" - negative. this could be positive because of the playful "lol" added after, but the ML model senses "hate" and says negative
+**Misclassifying distress:** If deployed in a mental-health or support context,
+a neutral or positive classification of a message expressing distress (e.g., "i'm
+fine. totally fine.") could cause a system to ignore someone who needs help.
+Guardrails, human review, and a low confidence threshold for "neutral" outputs
+should be required before any such deployment.
 
+**Misuse potential:**
+- The system could be used to auto-triage user-generated content at scale,
+  potentially silencing negative feedback by labeling it as noise.
+- Prevention: require human review for any moderation decision, never use a single
+  model's output as a final decision, and publish the model card alongside the system.
 
-## 6. Limitations
+**Bias toward developer's dialect:** All training data was written or selected by
+one English speaker. The model may perform poorly for speakers of African American
+Vernacular English, non-US English slang, or non-standard orthography.
 
-Describe the most important limitations.  
-Examples:  
+---
 
-- The dataset is small  
-- The model does not generalize to longer posts  
-- It cannot detect sarcasm reliably  
-- It depends heavily on the words you chose or labeled
+## 9. AI Collaboration Reflection
 
-The dataset is small and limited to one human's knowledge of the language. Another implementation of the English language will be considered differently.
+**Helpful suggestion:**  
+When designing the cross-validation logic, I asked Claude to suggest how to
+handle the case where all three models disagree. It recommended deferring to
+Gemini as the most expressive model while reducing the confidence score to signal
+uncertainty — a clean heuristic that made the pipeline's behavior predictable
+and transparent. This was directly implemented.
 
-## 7. Ethical Considerations
+**Flawed / incorrect suggestion:**  
+Early in the project, Claude suggested setting `response_mime_type: "application/json"`
+in the Gemini generation config to guarantee JSON output. In practice, the
+fine-tuned model does not honor this config (it was trained to output bare labels)
+and the parameter caused errors when using the tuned model endpoint. The fix was
+to apply `response_mime_type` only to the base model client and use a separate
+generation config for the fine-tuned model.
 
-Discuss any potential impacts of using mood detection in real applications.  
-Examples: 
-
-- Misclassifying a message expressing distress  
-- Misinterpreting mood for certain language communities  
-- Privacy considerations if analyzing personal messages
-
-If you are using this for say, classifying emotion. It may misclassify someone's emotions, which in medical or psychological implementations, may lead to misjudgments on treatments or bad diagnoses of conditions.
-
-## 8. Ideas for Improvement
-
-List ways to improve either model.  
-Possible directions:  
-
-- Add more labeled data  
-- Use TF IDF instead of CountVectorizer  
-- Add better preprocessing for emojis or slang  
-- Use a small neural network or transformer model  
-- Improve the rule based scoring method  
-- Add a real test set instead of training accuracy only
-
-We would improve the ML model by going through more diverse texts, like going through a dataset of X tweets and adding those. This way, the ML would understand the labeling of different cadences, tones, and slang that a large amount of people use.
+**Surprise from testing:**  
+The biggest surprise was how consistently the three models disagreed on
+ambiguous inputs. Before building the cross-validation layer, I assumed the
+models would mostly agree and the pipeline would be a formality. In practice,
+about 30% of the SAMPLE_POSTS caused at least one disagreement, confirming
+that the cross-validation step carries real value.
