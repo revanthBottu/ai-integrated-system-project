@@ -1,3 +1,5 @@
 scikit-learn
 matplotlib
 ipykernel
+google-generativeai
+python-dotenv
