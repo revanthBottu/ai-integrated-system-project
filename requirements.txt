@@ -1,6 +1,6 @@
 scikit-learn
 matplotlib
 ipykernel
-google-generativeai
+google-genai
 python-dotenv
-flask
+streamlit
