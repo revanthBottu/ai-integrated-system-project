@@ -1,0 +1,6 @@
+.env
+.tuned_model_name
+__pycache__/
+*.pyc
+*.pyo
+.env.local
