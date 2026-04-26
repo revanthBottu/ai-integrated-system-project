@@ -24,7 +24,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 TUNED_MODEL_FILE = ".tuned_model_name"
-BASE_MODEL = "gemini-2.5-flash-preview-05-20"
+BASE_MODEL = "gemini-2.5-flash"
 VALID_LABELS = {"positive", "negative", "neutral", "mixed"}
 
 _SYSTEM_INSTRUCTION = """\

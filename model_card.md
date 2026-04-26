@@ -159,26 +159,10 @@ Vernacular English, non-US English slang, or non-standard orthography.
 
 ---
 
-## 9. AI Collaboration Reflection
+## 9. Model Reflections
 
-**Helpful suggestion:**  
-When designing the cross-validation logic, I asked Claude to suggest how to
-handle the case where all three models disagree. It recommended deferring to
-Gemini as the most expressive model while reducing the confidence score to signal
-uncertainty — a clean heuristic that made the pipeline's behavior predictable
-and transparent. This was directly implemented.
+Passed most test cases, but failed on some more neutral test cases, and struggles sometimes labeling as neutral, instead jumps the gun to positive or negative.
 
-**Flawed / incorrect suggestion:**  
-Early in the project, Claude suggested setting `response_mime_type: "application/json"`
-in the Gemini generation config to guarantee JSON output. In practice, the
-fine-tuned model does not honor this config (it was trained to output bare labels)
-and the parameter caused errors when using the tuned model endpoint. The fix was
-to apply `response_mime_type` only to the base model client and use a separate
-generation config for the fine-tuned model.
+  The limitations are it relies on knowing the current slang of the speaker. If it's a different dialect or new slang, the LLM might have bias towards older or more prevalent slang. This would lead to more obscure dictionaries of Engish slang working not as good.
 
-**Surprise from testing:**  
-The biggest surprise was how consistently the three models disagreed on
-ambiguous inputs. Before building the cross-validation layer, I assumed the
-models would mostly agree and the pipeline would be a formality. In practice,
-about 30% of the SAMPLE_POSTS caused at least one disagreement, confirming
-that the cross-validation step carries real value.
+  What surprised me was how often the rule-based model disagreed. I can probably attribute this to the LLM having a more diverse training dataset, but in a lot of cases the ML method had to tie break, and more weight had to be assigned to the LLM response.

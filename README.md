@@ -259,22 +259,9 @@ well-represented in the 85-example training set.
 
 ## Reflection
 
-Building this system taught me that AI reliability is not just about the model
-— it's about how you compose multiple signals and handle disagreement. The most
-surprising result was how often the three models disagreed: even on seemingly
-obvious examples like `"i'm fine. totally fine."`, the rule-based model saw
-neutral while Gemini correctly identified passive distress. That gap justified
-the cross-validation design.
+  This project taught me how to take an AI that does basic sentiment analysis, ad fine-tune it on many examples to make it really good at sentiment analysis. One other thing I did was cross-validate the AI data with the previous rule-based and ML data from the mini project, and testing the AI's reliability with unit tests. This showed me how AI responses can differ(sometimes in positive or negative ways) from heuristic methods, and how to account for and respond to those differences.
 
-Fine-tuning also clarified the difference between *memorization* and
-*generalization*: the fine-tuned model performed well on held-out sarcasm cases
-not in its training data, but occasionally failed on novel slang it had never seen.
-
-This project also made clear that AI systems deployed in mood-sensitive contexts
-carry real ethical weight. Misclassifying someone expressing distress as neutral
-is not just a metric loss — it's a failure with human consequences.
-
----
+  While collaborating with AI here, I mostly created the structure of how I wanted the LLM to be fine-tuned and built into a end-to-end project, and Claude implemented it for me. I made sure to make my own tests so that the LLM wouldn't accidentally validate incorrect code. Beyond that, I was able to check the code reliability by running the website and rebuilding.
 
 ## Ethical Considerations
 

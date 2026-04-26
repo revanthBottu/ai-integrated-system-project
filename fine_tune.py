@@ -31,7 +31,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-TUNING_SOURCE = "models/gemini-1.5-flash-001-tuning"
+TUNING_SOURCE = "models/gemini-2.0-flash-lite-001-tuning"
 TUNED_MODEL_FILE = ".tuned_model_name"
 
 

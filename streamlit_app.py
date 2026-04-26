@@ -45,7 +45,7 @@ st.set_page_config(
 
 # ── Custom CSS ────────────────────────────────────────────────────────────────
 
-st.markdown("""
+st.html("""
 <link rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
       crossorigin="anonymous">
@@ -55,7 +55,6 @@ st.markdown("""
 [data-testid="stHeader"] { background: transparent; }
 .block-container { max-width: 640px; padding-top: 2.5rem; padding-bottom: 3rem; }
 
-/* Force all text black */
 body, p, span, div, label, li, td, th { color: #111 !important; }
 [data-testid="stMarkdownContainer"] p,
 [data-testid="stMarkdownContainer"] span { color: #111 !important; }
@@ -112,7 +111,7 @@ div.stButton > button[kind="primary"]:hover {
 }
 .row-label i { color: #555 !important; }
 </style>
-""", unsafe_allow_html=True)
+""")
 
 # ── Shared app state (module-level — survives Streamlit reruns) ───────────────
 
@@ -221,11 +220,6 @@ def _render_comparison(r) -> None:
 """, unsafe_allow_html=True)
 
 
-def _render_trace(r) -> None:
-    """Expandable pipeline step trace."""
-    with st.expander("  Pipeline trace", expanded=False):
-        st.code("\n".join(r.steps_log), language=None)
-
 
 def _render_status(state: dict) -> None:
     model = state.get("model", "")
@@ -324,7 +318,6 @@ if "result" in st.session_state:
     r = st.session_state["result"]
     _render_result(r)
     _render_comparison(r)
-    _render_trace(r)
 
 # ── Status bar ────────────────────────────────────────────────────────────────
 
